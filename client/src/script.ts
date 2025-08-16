@@ -11,6 +11,13 @@ const otherColor = 0x008888;
 const playerMeshes: Map<string, THREE.Mesh> = new Map();
 let mySessionId: string | null = null;
 
+// Store target positions for interpolation
+interface PlayerMeshData {
+    mesh: THREE.Mesh;
+    target: { x: number; y: number; z: number };
+}
+const playerMeshData: Map<string, PlayerMeshData> = new Map();
+
 // Ground Plane
 const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(20, 20),
@@ -54,29 +61,39 @@ async function joinRoom() {
 
         room.onStateChange((state: any) => {
             // Remove meshes for players that left
-            for (const [sessionId, mesh] of playerMeshes.entries()) {
+            for (const sessionId of playerMeshData.keys()) {
                 if (!state.players.has(sessionId)) {
-                    scene.remove(mesh);
-                    playerMeshes.delete(sessionId);
+                    const data = playerMeshData.get(sessionId);
+                    if (data) scene.remove(data.mesh);
+                    playerMeshData.delete(sessionId);
                 }
             }
 
             // Add/update meshes for current players
             state.players.forEach((player: Player, sessionId: string) => {
-                let mesh = playerMeshes.get(sessionId);
+                let data = playerMeshData.get(sessionId);
 
-                if (!mesh) {
-                    mesh = new THREE.Mesh(
-                        new THREE.BoxGeometry(1, 1, 1),
+                if (!data) {
+                    const mesh = new THREE.Mesh(
+                        new THREE.BoxGeometry(1, 2, 1),
                         new THREE.MeshBasicMaterial({
                             color: sessionId === mySessionId ? playerColor : otherColor
                         })
                     );
                     scene.add(mesh);
-                    playerMeshes.set(sessionId, mesh);
+                    data = {
+                        mesh,
+                        target: { x: player.x, y: player.y, z: player.z }
+                    };
+                    playerMeshData.set(sessionId, data);
+                    // Set initial position
+                    mesh.position.set(player.x, player.y, player.z);
+                } else {
+                    // Update target position for interpolation
+                    data.target.x = player.x;
+                    data.target.y = player.y;
+                    data.target.z = player.z;
                 }
-
-                mesh.position.set(player.x, player.y, player.z);
             });
         });
 
@@ -88,9 +105,19 @@ async function joinRoom() {
 
 joinRoom();
 
-// Animation/render loop
+// Animation/render loop with interpolation
 function animate() {
     requestAnimationFrame(animate);
+
+    // Interpolate each mesh towards its target position
+    const lerpAlpha = 0.15; // Adjust for smoothness (0.1-0.2 is typical)
+    playerMeshData.forEach((data) => {
+        data.mesh.position.lerp(
+            new THREE.Vector3(data.target.x, data.target.y, data.target.z),
+            lerpAlpha
+        );
+    });
+
     renderer.render(scene, camera);
 }
 animate();
