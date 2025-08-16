@@ -21,15 +21,16 @@ const playerMeshData: Map<string, PlayerMeshData> = new Map();
 // Ground Plane
 const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(20, 20),
-    new THREE.MeshBasicMaterial({ color: 0x888888, side: THREE.DoubleSide })
+    new THREE.MeshPhongMaterial({ color: 0xffffff, side: THREE.DoubleSide }) // CHANGED
 );
 ground.rotation.x = -Math.PI / 2;
 ground.position.y = -1;
+ground.receiveShadow = true; // Make sure this is set
 scene.add(ground);
 
 // Camera
 const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height);
-camera.position.set(10, 10, 10);
+camera.position.set(0, 10, 5);
 camera.lookAt(0, 0, 0);
 scene.add(camera);
 
@@ -37,6 +38,21 @@ scene.add(camera);
 const canvas = document.querySelector('canvas.webgl') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas });
 renderer.setSize(sizes.width, sizes.height);
+
+// === Lighting ===
+const ambientLight = new THREE.AmbientLight(0xffffff, 1);
+scene.add(ambientLight);
+
+const directionalLight = new THREE.SpotLight(0xffffff, 100);
+directionalLight.position.set(5, 10, 7.5);
+directionalLight.castShadow = true;
+directionalLight.shadow.mapSize.width = 1024;
+directionalLight.shadow.mapSize.height = 1024;
+scene.add(directionalLight);
+
+// Enable shadows in renderer
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // === Colyseus Client Setup ===
 const colyseusClient = new Client("ws://localhost:2567");
@@ -76,10 +92,11 @@ async function joinRoom() {
                 if (!data) {
                     const mesh = new THREE.Mesh(
                         new THREE.BoxGeometry(1, 2, 1),
-                        new THREE.MeshBasicMaterial({
+                        new THREE.MeshPhongMaterial({
                             color: sessionId === mySessionId ? playerColor : otherColor
                         })
                     );
+                    mesh.castShadow = true; // Enable shadow casting for player boxes
                     scene.add(mesh);
                     data = {
                         mesh,

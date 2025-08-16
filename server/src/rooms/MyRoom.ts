@@ -28,7 +28,7 @@ export class MyRoom extends Room {
         const FLOOR_SIZE = 3;
         var player = new Player();
         player.x = -(FLOOR_SIZE / 2) + (Math.random() * FLOOR_SIZE);
-        player.y = 1;
+        player.y = 0;
         player.z = -(FLOOR_SIZE / 2) + (Math.random() * FLOOR_SIZE);
         this.state.players.set(client.sessionId, player);
     }
