@@ -4,7 +4,7 @@ A lightweight multiplayer 3D game demo using [Colyseus](https://colyseus.io/) fo
 
 Nothing much here. Just playing around with 'vibe coding'
 
-[![Demo video](media/screenshot.png)](media/demo-video.mp4)
+https://github.com/user-attachments/assets/5816828f-64cb-4402-8739-e4f933e61376
 
 ## Getting Started
 
@@ -51,7 +51,7 @@ Or configure your own static server.
 
 #### 5. Open in browser
 
-Navigate to `http://localhost:5000` (or your chosen port).
+Navigate to `http://localhost:5174` (or your chosen port).
 
 ## Controls
 
