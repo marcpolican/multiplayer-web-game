@@ -4,7 +4,7 @@ A lightweight multiplayer 3D game demo using [Colyseus](https://colyseus.io/) fo
 
 Nothing much here. Just playing around with 'vibe coding'
 
-[![Demo video](media/demo-video.mp4)]
+[![Demo video](media/screenshot.png)](media/demo-video.mp4)
 
 ## Getting Started
 
