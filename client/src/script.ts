@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Client, Room } from 'colyseus.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 
 // === THREE.js Scene Setup ===
 const sizes = { width: 800, height: 600 };
@@ -14,7 +15,7 @@ let mySessionId: string | null = null;
 // Store target positions for interpolation
 interface PlayerMeshData {
     mesh: THREE.Mesh;
-    target: { x: number; y: number; z: number };
+    target: { x: number; y: number; z: number; rotY?: number; };
 }
 const playerMeshData: Map<string, PlayerMeshData> = new Map();
 
@@ -24,13 +25,13 @@ const ground = new THREE.Mesh(
     new THREE.MeshPhongMaterial({ color: 0xffffff, side: THREE.DoubleSide }) // CHANGED
 );
 ground.rotation.x = -Math.PI / 2;
-ground.position.y = -1;
+ground.position.y = 0;
 ground.receiveShadow = true; // Make sure this is set
 scene.add(ground);
 
 // Camera
 const camera = new THREE.PerspectiveCamera(75, sizes.width / sizes.height);
-camera.position.set(0, 10, 5);
+camera.position.set(0, 5, 10);
 camera.lookAt(0, 0, 0);
 scene.add(camera);
 
@@ -61,6 +62,8 @@ interface Player {
     x: number;
     y: number;
     z: number;
+    rotY?: number; // Add optional rotation property
+    model: string; // Character model filename
 }
 
 interface State {
@@ -90,26 +93,38 @@ async function joinRoom() {
                 let data = playerMeshData.get(sessionId);
 
                 if (!data) {
-                    const mesh = new THREE.Mesh(
-                        new THREE.BoxGeometry(1, 2, 1),
-                        new THREE.MeshPhongMaterial({
-                            color: sessionId === mySessionId ? playerColor : otherColor
-                        })
+                    // Load GLTF model instead of FBX
+                    const loader = new GLTFLoader();
+                    loader.load(
+                        `assets/characters/${player.model}`, // Use .glb or .gltf file
+                        (gltf) => {
+                            const object = gltf.scene;
+                            object.traverse((child) => {
+                                if ((child as THREE.Mesh).isMesh) {
+                                    child.castShadow = true;
+                                    child.receiveShadow = true;
+                                }
+                            });
+                            object.position.set(player.x, player.y, player.z);
+                            object.rotation.y = Math.PI;
+                            scene.add(object);
+
+                            data = {
+                                mesh: object as THREE.Mesh, // Type assertion for compatibility
+                                target: { x: player.x, y: player.y, z: player.z }
+                            };
+                            playerMeshData.set(sessionId, data);
+                        },
+                        undefined,
+                        (error) => {
+                            console.error('Error loading GLTF:', error);
+                        }
                     );
-                    mesh.castShadow = true; // Enable shadow casting for player boxes
-                    scene.add(mesh);
-                    data = {
-                        mesh,
-                        target: { x: player.x, y: player.y, z: player.z }
-                    };
-                    playerMeshData.set(sessionId, data);
-                    // Set initial position
-                    mesh.position.set(player.x, player.y, player.z);
                 } else {
-                    // Update target position for interpolation
                     data.target.x = player.x;
                     data.target.y = player.y;
                     data.target.z = player.z;
+                    data.target.rotY = player.rotY; // Update target rotation if present
                 }
             });
         });
@@ -127,72 +142,120 @@ function animate() {
     requestAnimationFrame(animate);
 
     // Interpolate each mesh towards its target position
-    const lerpAlpha = 0.15; // Adjust for smoothness (0.1-0.2 is typical)
-    playerMeshData.forEach((data) => {
+    const lerpAlpha = 0.15;
+    let myPlayerPos: THREE.Vector3 | null = null;
+    let myPlayerRotY: number | null = null;
+
+    playerMeshData.forEach((data, sessionId) => {
         data.mesh.position.lerp(
             new THREE.Vector3(data.target.x, data.target.y, data.target.z),
             lerpAlpha
         );
+
+        data.mesh.rotation.y = data.target.rotY !== undefined
+            ? THREE.MathUtils.lerp(data.mesh.rotation.y, data.target.rotY, lerpAlpha)
+            : data.mesh.rotation.y;
+
+        // Save my player position and rotation for camera
+        if (sessionId === mySessionId) {
+            myPlayerPos = data.mesh.position.clone();
+            myPlayerRotY = data.mesh.rotation.y;
+        }
     });
+
+    // === 3rd Person Camera Follow ===
+    if (myPlayerPos && myPlayerRotY !== null) {
+        // Offset behind and above the player
+        const cameraDistance = 6;
+        const cameraHeight = 3;
+
+        // Calculate offset based on player's facing direction (rotY)
+        const offsetX = Math.sin(myPlayerRotY) * cameraDistance;
+        const offsetZ = Math.cos(myPlayerRotY) * cameraDistance;
+
+        // Target camera position
+        const targetCameraPos = new THREE.Vector3(
+            myPlayerPos.x - offsetX,
+            myPlayerPos.y + cameraHeight,
+            myPlayerPos.z - offsetZ
+        );
+
+        // Smoothly interpolate camera position
+        camera.position.lerp(targetCameraPos, 0.15);
+
+        // Camera looks at the player
+        camera.lookAt(myPlayerPos.x, myPlayerPos.y + 1, myPlayerPos.z);
+    }
 
     renderer.render(scene, camera);
 }
+
 animate();
+setInterval(() => { updatePlayerPosition(); }, 100); // Update every 100ms  
 
 let movement = { x: 0, z: 0 };
+let movementPrev = { x: 0, z: 0 };
+let movementRotY = 0;
+let movementRotYPrev = 0;
 
 // Keyboard input handling
 window.addEventListener('keydown', (event: KeyboardEvent) => {
-    switch (event.key) {
-        case 'w':
-        case 'ArrowUp':
-            movement.z = -1;
-            break;
-        case 's':
-        case 'ArrowDown':
-            movement.z = 1;
-            break;
-        case 'a':
-        case 'ArrowLeft':
-            movement.x = -1;
-            break;
-        case 'd':
-        case 'ArrowRight':
-            movement.x = 1;
-            break;
+
+    var key = event.key.toLowerCase();
+    if (key === 'w' || key === 'arrowup') {
+        movement.z = 1;
+    } else if (key === 's' || key === 'arrowdown') {
+        movement.z = -1;
     }
 
-    updatePlayerPosition();
+    if (key === 'a' || key === 'arrowleft') {
+        // Turn left (rotate Y axis)
+        movementRotY = 1;
+    } else if (key === 'd' || key === 'arrowright') {
+        // Turn right (rotate Y axis)
+        movementRotY = -1;
+    }
 });
 
 window.addEventListener('keyup', (event: KeyboardEvent) => {
     switch (event.key) {
         case 'w':
-        case 'ArrowUp':
+        case 'arrowup':
         case 's':
-        case 'ArrowDown':
+        case 'arrowdown':
             movement.z = 0;
             break;
+
         case 'a':
-        case 'ArrowLeft':
+        case 'arrowleft':
         case 'd':
-        case 'ArrowRight':
-            movement.x = 0;
+        case 'arrowright':
+            movementRotY = 0;
             break;
     }
-
-    updatePlayerPosition();
 });
 
+
+
+
 function updatePlayerPosition() {
-    if (room && mySessionId) {
-        // @ts-ignore
-        const player = room.state.players.get(mySessionId);
-        if (player) {
-            room.send("move", {
-                x: movement.x,
-                z: movement.z
-            });
-        }
+    if (!room || !mySessionId) return;
+    // @ts-ignore
+    const player = room.state.players.get(mySessionId);
+    if (!player) return;
+
+    if (movement.z === movementPrev.z && movement.z === 0 && movementRotY === movementRotYPrev && movementRotY === 0) {
+        // No movement or rotation change, skip sending
+        return;
     }
+
+    room.send("move", {
+        x: movement.x,
+        z: movement.z,
+        rotY: movementRotY
+    });
+
+    movementPrev.x = movement.x;
+    movementPrev.z = movement.z;
+    movementRotYPrev = movementRotY;
 }
