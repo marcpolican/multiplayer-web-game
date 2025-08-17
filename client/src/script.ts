@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Client, Room } from 'colyseus.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 
+const serverUrl = "ws://192.168.8.147:2567"; // Adjust to your server URL
+
 // === THREE.js Scene Setup ===
 const sizes = { width: 800, height: 600 };
 const scene = new THREE.Scene();
@@ -38,7 +40,24 @@ scene.add(camera);
 // Renderer
 const canvas = document.querySelector('canvas.webgl') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas });
-renderer.setSize(sizes.width, sizes.height);
+
+// Make canvas and renderer full screen
+function resizeRenderer() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    canvas.style.width = "100vw";
+    canvas.style.height = "100vh";
+    canvas.style.display = "block";
+    canvas.style.position = "fixed";
+    canvas.style.top = "0";
+    canvas.style.left = "0";
+    canvas.style.zIndex = "0";
+}
+window.addEventListener('resize', resizeRenderer);
+resizeRenderer();
 
 // === Lighting ===
 const ambientLight = new THREE.AmbientLight(0xffffff, 1);
@@ -56,7 +75,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 // === Colyseus Client Setup ===
-const colyseusClient = new Client("ws://localhost:2567");
+const colyseusClient = new Client(serverUrl);
 
 interface Player {
     x: number;
@@ -235,7 +254,84 @@ window.addEventListener('keyup', (event: KeyboardEvent) => {
     }
 });
 
+// --- Virtual Joystick for Mobile ---
+const joystickContainer = document.createElement('div');
+joystickContainer.style.position = 'fixed';
+joystickContainer.style.left = '30px';
+joystickContainer.style.bottom = '30px';
+joystickContainer.style.width = '120px';
+joystickContainer.style.height = '120px';
+joystickContainer.style.zIndex = '1000';
+joystickContainer.style.touchAction = 'none';
+joystickContainer.style.userSelect = 'none';
+joystickContainer.style.background = 'rgba(0,0,0,0.05)';
+joystickContainer.style.borderRadius = '50%';
+joystickContainer.style.display = 'none'; // Only show on touch devices
+document.body.appendChild(joystickContainer);
 
+const joystickThumb = document.createElement('div');
+joystickThumb.style.position = 'absolute';
+joystickThumb.style.left = '40px';
+joystickThumb.style.top = '40px';
+joystickThumb.style.width = '40px';
+joystickThumb.style.height = '40px';
+joystickThumb.style.background = 'rgba(0,0,0,0.2)';
+joystickThumb.style.borderRadius = '50%';
+joystickThumb.style.pointerEvents = 'none';
+joystickContainer.appendChild(joystickThumb);
+
+// Show joystick only on touch devices
+if ('ontouchstart' in window) {
+    joystickContainer.style.display = '';
+}
+
+let joystickActive = false;
+let joystickStart = { x: 0, y: 0 };
+
+joystickContainer.addEventListener('touchstart', (e) => {
+    joystickActive = true;
+    const touch = e.touches[0];
+    joystickStart = { x: touch.clientX, y: touch.clientY };
+    joystickThumb.style.left = '40px';
+    joystickThumb.style.top = '40px';
+}, { passive: false });
+
+joystickContainer.addEventListener('touchmove', (e) => {
+    if (!joystickActive) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - joystickStart.x;
+    const dy = touch.clientY - joystickStart.y;
+
+    // Clamp thumb movement
+    const maxDist = 40;
+    const dist = Math.min(Math.sqrt(dx * dx + dy * dy), maxDist);
+    const angle = Math.atan2(dy, dx);
+
+    const thumbX = 40 + Math.cos(angle) * dist;
+    const thumbY = 40 + Math.sin(angle) * dist;
+    joystickThumb.style.left = `${thumbX}px`;
+    joystickThumb.style.top = `${thumbY}px`;
+
+    // Convert to movement (forward/backward and rotation)
+    // Up/down: movement.z, left/right: rotation
+    const normX = Math.cos(angle) * (dist / maxDist);
+    const normY = Math.sin(angle) * (dist / maxDist);
+
+    // Forward/backward
+    movement.z = Math.abs(normY) > 0.2 ? (normY > 0 ? -1 : 1) : 0;
+    // Left/right for rotation
+    movementRotY = Math.abs(normX) > 0.2 ? (normX > 0 ? -1 : 1) : 0;
+
+    e.preventDefault();
+}, { passive: false });
+
+joystickContainer.addEventListener('touchend', () => {
+    joystickActive = false;
+    joystickThumb.style.left = '40px';
+    joystickThumb.style.top = '40px';
+    movement.z = 0;
+    movementRotY = 0;
+});
 
 
 function updatePlayerPosition() {
